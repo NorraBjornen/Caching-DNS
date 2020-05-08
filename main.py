@@ -27,6 +27,10 @@ def decimal_to_binary(n):
     return bin(n).replace("0b", "")
 
 
+def decimal_to_hex(n):
+    return hex(n)[2:]
+
+
 def to_bin_add_zeros(number, bits):
     temp = str(decimal_to_binary(number))
     zeros = (bits - len(temp)) * "0"
@@ -183,3 +187,4 @@ def parse_request(r):
         s = hex_to_bin(r_header[4:8])
         if s[-4:] == "0000":
             responses[t][name] = resp
+

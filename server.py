@@ -1,5 +1,6 @@
 # Модуль socket для сетевого программирования
 from socket import *
+from answer import Answer
 import binascii
 
 # данные сервера
@@ -48,9 +49,11 @@ def parse_response(r):
 
         data_length = int(rdlen, 16) * 2
         # rdata = rest[24:24+data_length]
-        rdata = rest[:24+data_length]
+        rdata = rest[24:24+data_length]
 
-        answers.append(rdata)
+        ans = Answer(t, rdata, ttl)
+
+        answers.append(ans)
         rest = rest[24+data_length:]
 
     cache[(name, t)] = answers
@@ -86,12 +89,18 @@ def parse_request(r):
 
         new_header = _id + flags + qd_count + an_count + ns_count + ar_count
 
+        res = new_header + question + "".join(map(Answer.form_response, answers))
+
         print("from cache")
+        print(res)
 
-        return new_header + question + "".join(answers)
+        return res
 
+    res = parse_response(send_udp_message(r, "8.8.8.8", 53))
     print("from google server")
-    return parse_response(send_udp_message(r, "8.8.8.8", 53))
+    print(res)
+
+    return res
 
 
 host = 'localhost'
