@@ -1,10 +1,19 @@
 import time
 
-from main import decimal_to_hex
+from utils import decimal_to_hex
 
 
 def get_current_seconds():
     return int(round(time.time()))
+
+
+def get_all_responses(arr):
+    res = []
+    for item in arr:
+        content, is_valid = item.form_response()
+        if is_valid:
+            res.append(content)
+    return "".join(res), len(res)
 
 
 class Answer:
@@ -20,4 +29,4 @@ class Answer:
     def form_response(self):
         return self._name + self._type + "0001" + \
                decimal_to_hex(self._valid_till - get_current_seconds()).rjust(8, '0') + \
-               decimal_to_hex(self._data_len).rjust(4, '0') + self._data
+               decimal_to_hex(self._data_len).rjust(4, '0') + self._data, self._valid_till > get_current_seconds()
