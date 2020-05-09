@@ -1,5 +1,7 @@
+import pickle
 from socket import *
 from answer import Answer, get_all_responses, get_current_seconds
+import json
 import binascii
 
 from utils import send_udp_message, decimal_to_hex
@@ -27,6 +29,9 @@ def clear_cache():
             del cache[k]
         prev_check_time = get_current_seconds()
 
+    with open("backup", "wb+") as f:
+        pickle.dump(cache, f)
+
 
 def get_name(r, start_name_index=24):
     name = []
@@ -35,6 +40,18 @@ def get_name(r, start_name_index=24):
 
     while True:
         index = start_name_index + offset
+
+        raw = r[index:index + 4]
+
+        if int(raw, 16) >= 49152:
+            link = str(bin(int(raw, 16)))[2:]
+
+            link = int(link[2:], 2) * 2
+
+            rest, offset = get_name(r, link)
+            name.append(rest)
+            name.append(".")
+            break
 
         length = int(r[index:index + 2], 16)
 
@@ -50,7 +67,16 @@ def get_name(r, start_name_index=24):
         name.append(".")
         offset += length * 2 + 2
 
-    return "".join(name[:-1]), offset
+    name = "".join(name[:-1])
+
+    return name, offset
+
+
+def extract_name(r, ind):
+    link = str(bin(int(r[ind:ind+4], 16)))[2:]
+    link = int(link[2:], 2) * 2
+    res, _ = get_name(r, link)
+    return res
 
 
 def parse_response(r):
@@ -79,7 +105,11 @@ def parse_response(r):
     for count in counts:
         answers = []
 
+        prev_n = name
+        n = name
+
         for i in range(count):
+            n = extract_name(r, r.index(rest))
             t = rest[4:8]
             ttl = rest[12:20]
             data_len = rest[20:24]
@@ -96,11 +126,21 @@ def parse_response(r):
 
             ans = Answer(t, data, ttl)
 
-            answers.append(ans)
             rest = rest[24 + data_length:]
 
+            if n != prev_n:
+                cache[(n, t)] = [ans]
+                answers = []
+            else:
+                answers.append(ans)
+
+            prev_n = n
+
         if len(answers) != 0:
-            cache[(name, t)] = answers
+            cache[(n, t)] = answers
+
+    with open("backup", "wb+") as f:
+        pickle.dump(cache, f)
 
     return r
 
@@ -132,22 +172,30 @@ def parse_request(request):
 
     print(f"name {name} type '{t}' record returned from server")
 
-    return parse_response(send_udp_message(request, "93.186.238.238", 53))
+    # авторитетный днс сервер для e1.ru
+    return parse_response(send_udp_message(request, "195.19.71.253", 53))
 
 
-host = 'localhost'
-port = 53
-addr = (host, port)
+if __name__ == '__main__':
+    try:
+        with open("backup", "rb") as f:
+            cache = pickle.load(f)
+    except:
+        print("backup file not found")
 
-udp_socket = socket(AF_INET, SOCK_DGRAM)
-udp_socket.bind(addr)
+    host = 'localhost'
+    port = 53
+    addr = (host, port)
 
-print(f"started on {addr}")
-while True:
-    received, addr = udp_socket.recvfrom(1024)
-    received = binascii.hexlify(received).decode("utf-8")
+    udp_socket = socket(AF_INET, SOCK_DGRAM)
+    udp_socket.bind(addr)
 
-    response = parse_request(received)
+    print(f"started on {addr}")
+    while True:
+        received, addr = udp_socket.recvfrom(1024)
+        received = binascii.hexlify(received).decode("utf-8")
 
-    udp_socket.sendto(binascii.unhexlify(response), addr)
-    clear_cache()
+        response = parse_request(received)
+
+        udp_socket.sendto(binascii.unhexlify(response), addr)
+        clear_cache()
