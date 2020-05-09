@@ -1,5 +1,5 @@
 from socket import *
-from answer import Answer, get_all_responses
+from answer import Answer, get_all_responses, get_current_seconds
 import binascii
 
 from utils import send_udp_message, decimal_to_hex
@@ -9,10 +9,26 @@ cache = dict()
 # храним доменное имя (dns.local) для ip 127.0.0.1 нашего днс сервера
 cache[("1.0.0.127.in-addr.arpa", "000c")] = [Answer("000c", "03646e73056c6f63616c00", "100")]
 
+prev_check_time = get_current_seconds()
 
-def get_name(r):
-    start_name_index = 24
 
+def clear_cache():
+    global prev_check_time
+    current_time = get_current_seconds()
+    if current_time - prev_check_time >= 120:
+        keys_to_delete = []
+        for k, v in cache.items():
+            for item in v:
+                if item.valid_till <= current_time:
+                    del item
+            if len(v) == 0:
+                keys_to_delete.append(k)
+        for k in keys_to_delete:
+            del cache[k]
+        prev_check_time = get_current_seconds()
+
+
+def get_name(r, start_name_index=24):
     name = []
 
     offset = 0
@@ -51,27 +67,40 @@ def parse_response(r):
 
     answer = r[24 + question_len + 8:]
 
-    an_count = header[12:16]
+    an_count = int(header[12:16], 16)
 
-    count = int(an_count, 16)
+    ns_count = int(header[16:20], 16)
+    ar_count = int(header[20:24], 16)
 
-    answers = []
+    counts = [an_count, ns_count, ar_count]
+
     rest = answer
 
-    for i in range(count):
-        t = rest[4:8]
-        ttl = rest[12:20]
-        data_len = rest[20:24]
+    for count in counts:
+        answers = []
 
-        data_length = int(data_len, 16) * 2
-        data = rest[24:24+data_length]
+        for i in range(count):
+            t = rest[4:8]
+            ttl = rest[12:20]
+            data_len = rest[20:24]
 
-        ans = Answer(t, data, ttl)
+            data_length = int(data_len, 16) * 2
+            data = rest[24:24 + data_length]
 
-        answers.append(ans)
-        rest = rest[24+data_length:]
+            link = str(bin(int(data[-4:], 16)))[2:]
+            if t == "0002" and data[-2:] != "00" and link[:2] == "11":
+                link = int(link[2:], 2) * 2
+                _, offset = get_name(r[link:], 0)
+                ending = r[link:link+offset] + "00"
+                data = data[:-4] + ending
 
-    cache[(name, t)] = answers
+            ans = Answer(t, data, ttl)
+
+            answers.append(ans)
+            rest = rest[24 + data_length:]
+
+        if len(answers) != 0:
+            cache[(name, t)] = answers
 
     return r
 
@@ -97,13 +126,13 @@ def parse_request(request):
 
             new_header = _id + flags + qd_count + an_count + ns_count + ar_count
 
-            print("cache")
+            print(f"name {name} type '{t}' record returned from cache")
 
             return new_header + question + content
 
-    print("server")
+    print(f"name {name} type '{t}' record returned from server")
 
-    return parse_response(send_udp_message(request, "8.8.8.8", 53))
+    return parse_response(send_udp_message(request, "93.186.238.238", 53))
 
 
 host = 'localhost'
@@ -121,3 +150,4 @@ while True:
     response = parse_request(received)
 
     udp_socket.sendto(binascii.unhexlify(response), addr)
+    clear_cache()

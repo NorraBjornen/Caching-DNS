@@ -1,7 +1,13 @@
 import binascii
 import socket
+import time
+
 
 responses = dict()
+
+
+def get_current_seconds():
+    return int(round(time.time()))
 
 
 def decimal_to_hex(n):

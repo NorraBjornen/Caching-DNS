@@ -1,10 +1,4 @@
-import time
-
-from utils import decimal_to_hex
-
-
-def get_current_seconds():
-    return int(round(time.time()))
+from utils import decimal_to_hex, get_current_seconds
 
 
 def get_all_responses(arr):
@@ -24,9 +18,9 @@ class Answer:
         self._data_len = len(data) // 2
         self._data = data
 
-        self._valid_till = get_current_seconds() + self._ttl
+        self.valid_till = get_current_seconds() + self._ttl
 
     def form_response(self):
         return self._name + self._type + "0001" + \
-               decimal_to_hex(self._valid_till - get_current_seconds()).rjust(8, '0') + \
-               decimal_to_hex(self._data_len).rjust(4, '0') + self._data, self._valid_till > get_current_seconds()
+               decimal_to_hex(self.valid_till - get_current_seconds()).rjust(8, '0') + \
+               decimal_to_hex(self._data_len).rjust(4, '0') + self._data, self.valid_till > get_current_seconds()
