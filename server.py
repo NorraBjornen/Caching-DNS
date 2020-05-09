@@ -90,6 +90,9 @@ def extract_name(r, ind):
 
 # обработка ответа
 def parse_response(r):
+    if r is None:
+        return None
+
     header = r[0:24]
     question = r[24:]
 
@@ -216,5 +219,6 @@ if __name__ == '__main__':
 
         response = parse_request(received)
 
-        udp_socket.sendto(binascii.unhexlify(response), addr)
+        if response is not None:
+            udp_socket.sendto(binascii.unhexlify(response), addr)
         clear_cache()
