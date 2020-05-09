@@ -1,19 +1,21 @@
 import pickle
 from socket import *
 from answer import Answer, get_all_responses, get_current_seconds
-import json
 import binascii
 
 from utils import send_udp_message, decimal_to_hex
 
+# кэш, в котором хранятся ресурсные записи
 cache = dict()
 
 # храним доменное имя (dns.local) для ip 127.0.0.1 нашего днс сервера
 cache[("1.0.0.127.in-addr.arpa", "000c")] = [Answer("000c", "03646e73056c6f63616c00", "100")]
 
+# переменная, в которой храним время предыдущей проверки
 prev_check_time = get_current_seconds()
 
 
+# метод, при вызове которого выполняется удаление устаревших записей, но не чаще чем раз в 120 секунд
 def clear_cache():
     global prev_check_time
     current_time = get_current_seconds()
@@ -29,10 +31,13 @@ def clear_cache():
             del cache[k]
         prev_check_time = get_current_seconds()
 
+    # сохранение обновленного кэша
     with open("backup", "wb+") as f:
         pickle.dump(cache, f)
 
 
+# метод, позволяющий получить полное имя по меткам
+# в качестве параметров передаем полную строку ответа/запроса и индекс начала имени
 def get_name(r, start_name_index=24):
     name = []
 
@@ -41,8 +46,10 @@ def get_name(r, start_name_index=24):
     while True:
         index = start_name_index + offset
 
+        # длина метки, либо ссылка
         raw = r[index:index + 4]
 
+        # проверка на то, что это ссылка (первые 2 бита = 11)
         if int(raw, 16) >= 49152:
             link = str(bin(int(raw, 16)))[2:]
 
@@ -55,6 +62,7 @@ def get_name(r, start_name_index=24):
 
         length = int(r[index:index + 2], 16)
 
+        # Если долши до 00, то останавливаемся
         if length == 0:
             break
 
@@ -72,6 +80,7 @@ def get_name(r, start_name_index=24):
     return name, offset
 
 
+# получает имя по ссылке в первых 4 байтах ответа
 def extract_name(r, ind):
     link = str(bin(int(r[ind:ind+4], 16)))[2:]
     link = int(link[2:], 2) * 2
@@ -79,6 +88,7 @@ def extract_name(r, ind):
     return res
 
 
+# обработка ответа
 def parse_response(r):
     header = r[0:24]
     question = r[24:]
@@ -94,7 +104,6 @@ def parse_response(r):
     answer = r[24 + question_len + 8:]
 
     an_count = int(header[12:16], 16)
-
     ns_count = int(header[16:20], 16)
     ar_count = int(header[20:24], 16)
 
@@ -102,12 +111,14 @@ def parse_response(r):
 
     rest = answer
 
+    # идем в цикле по ответам, ns-серверам, и доп. информации
     for count in counts:
         answers = []
 
         prev_n = name
         n = name
 
+        # для каждой записи достаем всю полезную информацию и кэшируем
         for i in range(count):
             n = extract_name(r, r.index(rest))
             t = rest[4:8]
@@ -139,12 +150,14 @@ def parse_response(r):
         if len(answers) != 0:
             cache[(n, t)] = answers
 
+    # сохранение обновленного кэша
     with open("backup", "wb+") as f:
         pickle.dump(cache, f)
 
     return r
 
 
+# обработка запроса
 def parse_request(request):
     header = request[0:24]
     question = request[24:]
@@ -153,9 +166,11 @@ def parse_request(request):
 
     t = question[-8: -4]
 
+    # проверяем наличие записей в кэше
     if (name, t) in cache:
         content, count = get_all_responses(cache[(name, t)])
 
+        # если число записей не равно нулю
         if count != 0:
             _id = header[0:4]
             flags = "8180"
@@ -172,17 +187,20 @@ def parse_request(request):
 
     print(f"name {name} type '{t}' record returned from server")
 
+    # в ином случае произошло удаление устаревшей информации, поэтому запрашиваем у внешнего сервера
     # авторитетный днс сервер для e1.ru
     return parse_response(send_udp_message(request, "195.19.71.253", 53))
 
 
 if __name__ == '__main__':
+    # загрузка кэша из файла
     try:
         with open("backup", "rb") as f:
             cache = pickle.load(f)
     except:
         print("backup file not found")
 
+    # инициализация сервера
     host = 'localhost'
     port = 53
     addr = (host, port)
@@ -191,6 +209,7 @@ if __name__ == '__main__':
     udp_socket.bind(addr)
 
     print(f"started on {addr}")
+    # обработка сообщений в вечном цикле
     while True:
         received, addr = udp_socket.recvfrom(1024)
         received = binascii.hexlify(received).decode("utf-8")
